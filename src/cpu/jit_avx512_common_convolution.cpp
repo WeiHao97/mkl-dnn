@@ -18,6 +18,8 @@
 #include "mkldnn_thread.hpp"
 #include "type_helpers.hpp"
 #include "utils.hpp"
+#include <iostream>
+#include <typeinfo>
 
 #include "jit_avx512_common_convolution.hpp"
 
@@ -197,7 +199,7 @@ execute_forward_1d(const exec_ctx_t &ctx) const {
         nthr = jcp.aligned_threads;
     else
         nthr = mkldnn_get_max_threads();
-
+//https://people.cs.pitt.edu/~melhem/courses/xx45p/OpenMp.pdf
     parallel(nthr, [&](const int ithr, const int nthr) {
         int start{0}, end{0}, start_copy;
         balance211(work_amount, nthr, ithr, start, end);
@@ -271,42 +273,131 @@ template <data_type_t src_type, data_type_t wei_type,
           data_type_t dst_type>
 void jit_avx512_common_convolution_fwd_t<src_type, wei_type, dst_type>::
 execute_forward_2d(const exec_ctx_t &ctx) const {
+
+    //TODO Figure out how do they implement direct_conv
+    /** returns the underlying memory storage using pointer */
     auto src = CTX_IN_MEM(const src_data_t *, MKLDNN_ARG_SRC);
+    /*#define CTX_IN_MEM(type, arg) \
+    static_cast<const ARG_TYPE(type) *>(CTX_IN_STORAGE(arg).data_handle())*/
     auto weights = CTX_IN_MEM(const wei_data_t *, MKLDNN_ARG_WEIGHTS);
     auto bias = CTX_IN_MEM(const dst_data_t *, MKLDNN_ARG_BIAS);
     auto dst = CTX_OUT_MEM(dst_data_t *, MKLDNN_ARG_DST);
-
     prepare_padded_bias(bias, this->scratchpad(ctx));
 
     const memory_desc_wrapper src_d(pd()->src_md());
     const memory_desc_wrapper dst_d(pd()->dst_md());
     const memory_desc_wrapper weights_d(pd()->weights_md(0));
+    //std::cout << "src_d : "<<src_d.dims()<<std::endl;https://github.com/intel/mkl-dnn/blob/master/src/common/memory_desc_wrapper.hpp
 
-    const auto &jcp = pd()->jcp_;
+    const auto &jcp = pd()->jcp_; //jit_conv_conf_t, pd = primitive discriptor?
     assert(jcp.nb_oc % jcp.nb_oc_blocking == 0);
 
-    int oc_chunks = jcp.nb_oc / jcp.nb_oc_blocking;
-    int work_amount = jcp.mb * jcp.ngroups * oc_chunks * jcp.oh * jcp.nb_ow;
+    int oc_chunks = jcp.nb_oc / jcp.nb_oc_blocking;// oc=output channel 64/16=4
+    int work_amount = jcp.mb * jcp.ngroups * oc_chunks * jcp.oh * jcp.nb_ow;// 1*1*4*540*1
 
     int nthr;
     if (jcp.aligned_threads)
         nthr = jcp.aligned_threads;
     else
-        nthr = mkldnn_get_max_threads();
+        nthr = mkldnn_get_max_threads();// use this 40 thread
+        nthr = 20;//??????????????????????????
+    /*
+    std::cout << "jcp.ndims : "<<jcp.ndims<<std::endl;
+    std::cout << "jcp.mb : "<<jcp.mb<<std::endl;
+    std::cout << "jcp.ngroups : "<<jcp.ngroups<<std::endl;
+    std::cout << "jcp.ic : "<<jcp.ic<<std::endl;
+    std::cout << "jcp.oc : "<<jcp.oc<<std::endl;
+    std::cout << "jcp.oc_without_padding : "<<jcp.oc_without_padding<<std::endl;
+    std::cout << "jcp.ic_without_padding : "<<jcp.ic_without_padding<<std::endl;
+    std::cout << "jcp.id : "<<jcp.id<<std::endl;
+    std::cout << "jcp.ih : "<<jcp.ih<<std::endl;
+    std::cout << "jcp.iw : "<<jcp.iw<<std::endl;
+    std::cout << "jcp.od : "<<jcp.od<<std::endl;
+    std::cout << "jcp.oh : "<<jcp.oh<<std::endl;
+    std::cout << "jcp.ow : "<<jcp.ow<<std::endl;
+    std::cout << "jcp.f_pad : "<<jcp.f_pad<<std::endl;
+    std::cout << "jcp.l_pad : "<<jcp.l_pad<<std::endl;
+    std::cout << "jcp.t_pad : "<<jcp.t_pad<<std::endl;
+    std::cout << "jcp.back_pad : "<<jcp.back_pad<<std::endl;
+    std::cout << "jcp.r_pad : "<<jcp.r_pad<<std::endl;
+    std::cout << "jcp.b_pad : "<<jcp.b_pad<<std::endl;
+    std::cout << "jcp.kd : "<<jcp.kd<<std::endl;
+    std::cout << "jcp.kh : "<<jcp.kh<<std::endl;
+    std::cout << "jcp.kw : "<<jcp.kw<<std::endl;
+    std::cout << "jcp.stride_d : "<<jcp.stride_d<<std::endl;
+    std::cout << "jcp.stride_h : "<<jcp.stride_h<<std::endl;
+    std::cout << "jcp.stride_w : "<<jcp.stride_w<<std::endl;
+    std::cout << "jcp.dilate_d : "<<jcp.dilate_d<<std::endl;
+    std::cout << "jcp.dilate_h : "<<jcp.dilate_h<<std::endl;
+    std::cout << "jcp.dilate_w : "<<jcp.dilate_w<<std::endl;
+    std::cout << "jcp.src_tag : "<<jcp.src_tag<<std::endl;
+    std::cout << "jcp.wei_tag : "<<jcp.wei_tag<<std::endl;
+    std::cout << "jcp.dst_tag : "<<jcp.dst_tag<<std::endl;
+    std::cout << "jcp.jcpwith_bias : "<<jcp.with_bias<<std::endl;
+    std::cout << "jcp.with_sum : "<<jcp.with_sum<<std::endl;
+    std::cout << "jcp.with_eltwise : "<<jcp.with_eltwise<<std::endl;
 
+    std::cout << "jcp.idp : "<<jcp.idp<<std::endl;
+    std::cout << "jcp.ihp : "<<jcp.ihp<<std::endl;
+    std::cout << "jcp.iwp : "<<jcp.iwp<<std::endl;
+    std::cout << "jcp.ohp : "<<jcp.ohp<<std::endl;
+    std::cout << "jcp.owp : "<<jcp.owp<<std::endl;
+    std::cout << "jcp.nb_ic : "<<jcp.nb_ic<<std::endl;
+    std::cout << "jcp.ic_block : "<<jcp.ic_block<<std::endl;
+    std::cout << "jcp.nb_oc : "<<jcp.nb_oc<<std::endl;
+    std::cout << "jcp.oc_block : "<<jcp.oc_block<<std::endl;
+    std::cout << "jcp.nb_ow : "<<jcp.nb_ow<<std::endl;
+    std::cout << "jcp.ow_block : "<<jcp.ow_block<<std::endl;
+    std::cout << "jcp.nb_oc_blocking : "<<jcp.nb_oc_blocking<<std::endl;
+    std::cout << "jcp.nb_oc_blocking_thr_chunk : "<<jcp.nb_oc_blocking_thr_chunk<<std::endl;
+    std::cout << "jcp.nb_ic_blocking : "<<jcp.nb_ic_blocking<<std::endl;
+    std::cout << "jcp.nb_ic_blocking_max : "<<jcp.nb_ic_blocking_max<<std::endl;
+    std::cout << "jcp.nb_ic_L2 : "<<jcp.nb_ic_L2<<std::endl;
+    std::cout << "jcp.h_blocking : "<<jcp.h_blocking<<std::endl;
+    std::cout << "jcp.nb_oc_L2 : "<<jcp.nb_oc_L2<<std::endl;
+    std::cout << "jcp.ur_h : "<<jcp.ur_h<<std::endl;
+    std::cout << "jcp.ur_w : "<<jcp.ur_w<<std::endl;
+    std::cout << "jcp.ur_w_tail : "<<jcp.ur_w_tail<<std::endl;
+    std::cout << "jcp.is_1stconv : "<<jcp.is_1stconv<<std::endl;
+    std::cout << "jcp.nonblk_group_off : "<<jcp.nonblk_group_off<<std::endl;
+if (jcp.loop_order == loop_gncw){
+    std::cout << "loop_gncw "<<std::endl;}*/
+
+    int x0=0;
+    int x1=0;
+    int x2=0;
+    int x3=0;
+    int x4=0;
+    int x5=0;
+    int x6=0;
+    int x7=0;
+    int x8=0;
+    int x9=0;
+
+    
     parallel(nthr, [&](const int ithr, const int nthr) {
         int start{0}, end{0}, start_copy;
         balance211(work_amount, nthr, ithr, start, end);
+        /*balance211(ithr,start,end) {
+              end = ithr < 40 ? 54 : 53;
+              start = ithr <= 40 ? ithr * 54 : 40 + ithr* 53;
+              end = end + start;
+        }*/
         start_copy = start;
 
-        auto par_conv = jit_conv_call_s();
+        auto par_conv = jit_conv_call_s();//https://github.com/intel/mkl-dnn/blob/9ee78d1b3f121341da09e0728fd0f32de9dece2a/src/cpu/jit_primitive_conf.hpp
+        /**blk_off returns physical offset by logical one. Logical offset is represented by
+* a tuple of block indices (\param bn, ..., \param b1, \param b0). It is a
+* user responsibility to adjust the result to get offset within blocks
+blk_off(n, c, w) blk_off(n, c, h, w) */
         size_t src_h_stride = src_d.blk_off(0, 0, 1);
         size_t src_c_stride = src_d.blk_off(0, 1);
         size_t dst_h_stride = dst_d.blk_off(0, 0, 1);
         size_t wht_h_stride = wht_blk_off(weights_d, 0, 0, 0, 1);
         size_t wht_ic_stride = wht_blk_off(weights_d, 0, 0, 1);
+        //std::cout << "wht_ic_stride : "<<wht_ic_stride<<std::endl;
 
-        for (int icb_l2 = 0 ; icb_l2 < jcp.nb_ic; icb_l2 += jcp.nb_ic_L2) {
+        for (int icb_l2 = 0 ; icb_l2 < jcp.nb_ic; icb_l2 += jcp.nb_ic_L2) {//acording to the blocking of src, 1 in ours
             start = start_copy;
             int n{0}, g{0}, occ{0}, oh_s{0}, owb{0};
 
@@ -315,54 +406,95 @@ execute_forward_2d(const exec_ctx_t &ctx) const {
                     g, jcp.ngroups, n, jcp.mb, oh_s, jcp.oh);
             else if (jcp.loop_order == loop_gncw)
                 nd_iterator_init(start, g, jcp.ngroups, n, jcp.mb,
-                    occ, oc_chunks, owb, jcp.nb_ow, oh_s, jcp.oh);
+                    occ, oc_chunks, owb, jcp.nb_ow, oh_s, jcp.oh);// 54 works per thread,
+                                                                  //16oc uses 10 threads, oh_s= oh_ offset, owb = ow_offset(always 0)
+                                                                  //occ = chanel offset
             else
                 assert(!"unsupported loop order");
+              /*  template<typename T>
+                inline T nd_iterator_init(T start) { return start; }
+                template<typename T, typename U, typename W, typename... Args>
+                inline T nd_iterator_init(T start, U &x, const W &X, Args &&... tuple) {
+                    start = nd_iterator_init(start, utils::forward<Args>(tuple)...);
+                    x = start % X;
+                    return start / X;
+                }*/
 
-            while (start < end) {
-                int ocb = occ * jcp.nb_oc_blocking;
-                int g_ocb = g * jcp.nb_oc + ocb;
-                int g_oc = g_ocb * jcp.oc_block;
-                int g_icb = g * jcp.nb_ic * jcp.nonblk_group_off;
+            while (start < end) {// 54,53
+                int ocb = occ * jcp.nb_oc_blocking;//0,1,2,3
+                int g_ocb = g * jcp.nb_oc + ocb;// still:0,1,2,3
+                int g_oc = g_ocb * jcp.oc_block;//(0,1,2,3)*16
+                int g_icb = g * jcp.nb_ic * jcp.nonblk_group_off;//0
 
-                int work_rem = end - start;
+                int work_rem = end - start;//54
 
-                int ow_s =  owb * jcp.ow_block;
-                int iw_s =  ow_s * jcp.stride_w;
-                int oh_e = oh_s + work_rem > jcp.oh ? jcp.oh : oh_s + work_rem;
+                int ow_s =  owb * jcp.ow_block;//0*960
+                int iw_s =  ow_s * jcp.stride_w;//0*2
+                int oh_e = oh_s + work_rem > jcp.oh ? jcp.oh : oh_s + work_rem;//next pos of oh for next thread
                 auto bias_w = bias ? bias + g_oc : nullptr;
 
-                for (int oh_b = oh_s; oh_b < oh_e; oh_b += jcp.h_blocking) {
-                    int ih_b = -jcp.t_pad + oh_b * jcp.stride_h;
+                for (int oh_b = oh_s; oh_b < oh_e; oh_b += jcp.h_blocking) {//(0,9)*54;<,oh_b +=2 (definite pos)
+                    int ih_b = -jcp.t_pad + oh_b * jcp.stride_h;// oh_b*2-top-pad for input_block(upper bound)
 
-                    auto dst_w = dst + dst_d.blk_off(n, g_ocb, oh_b, ow_s);
+                    auto dst_w = dst + dst_d.blk_off(n, g_ocb, oh_b, ow_s);//(1,0,oh_b,0) definite pos
                     auto src_w
-                        = src + src_d.blk_off(n, g_icb + icb_l2, ih_b, iw_s);
+                        = src + src_d.blk_off(n, g_icb + icb_l2, ih_b, iw_s);//(1,0,ih_b,0) definite pos
                     auto wht_w
-                            = weights + wht_blk_off(weights_d, g, ocb, icb_l2);
+                            = weights + wht_blk_off(weights_d, g, ocb, icb_l2);//(0,ocb,0) ocb=0,1,2,3 definite pos
 
-                    for (int icb = icb_l2;
-                            icb < min(jcp.nb_ic, icb_l2 + jcp.nb_ic_L2);
-                            ++icb) {
+                    for (int icb = icb_l2;//0
+                            icb < min(jcp.nb_ic, icb_l2 + jcp.nb_ic_L2);//1
+                            ++icb) {//acording to the blocking of src, 1 in ours
                         auto src_c = src_w;
                         auto dst_c = dst_w;
-                        for (int oj = oh_b, ij = ih_b;
+                        for (int oj = oh_b, ij = ih_b;//oj=oh_definite pos, ij=ih_definite pos
                                 oj < min(oh_e, oh_b + jcp.h_blocking);
-                                ++oj, ij += jcp.stride_h) {
+                                ++oj, ij += jcp.stride_h) {// oj++,ij+=2
                             int dilate_h = jcp.dilate_h + 1;
                             int i_t_overflow = div_up(max(0, -ij), dilate_h);
                             int i_b_overflow = div_up(max(0, ij - jcp.ih
                                 + (jcp.kh - 1) * dilate_h + 1), dilate_h);
                             int kh_padding = nstl::max(
-                                    0, jcp.kh - i_t_overflow - i_b_overflow);
-
+                                    0, jcp.kh - i_t_overflow - i_b_overflow);// kernal dimension
                             auto aux_src = src_c
                                     + i_t_overflow * dilate_h * src_h_stride;
                             auto aux_wht = wht_w + i_t_overflow * wht_h_stride;
-
+                            // question ???
+                            int num = 0;
+                            int i = 0;
+                            
+                            for(; i <1920 * 7; i++){
+                            if(aux_src[i] != 0 ){ 
+                              num++;
+                            }
+                          }
+                                       
+                          if(num >= 0.001*i){
+                          
+                            if(ithr == 0)
+                               x0++;
+                            else if(ithr ==1)
+                               x1++;
+                            else if (ithr == 2)
+                                x2++;
+                           else if(ithr ==3)
+                               x3++;
+                            else if (ithr == 4)
+                                x4++;
+                                else if(ithr ==5)
+                               x5++;
+                            else if (ithr == 6)
+                                x6++;
+                                else if(ithr ==7)
+                               x7++;
+                            else if (ithr == 8)
+                                x8++;
+                                else if(ithr ==9)
+                               x9++;
+                               
                             jit_conv_ker_pipeline_ow_thr(kernel_->jit_ker,
                                 par_conv, aux_src, dst_c, aux_wht, bias_w, icb,
-                                kh_padding, owb);
+                                kh_padding, owb);}
 
                             src_c += src_h_stride * jcp.stride_h;
                             dst_c += dst_h_stride;
@@ -390,6 +522,17 @@ execute_forward_2d(const exec_ctx_t &ctx) const {
         jit_conv_ker_pipeline_ow_thr(kernel_->jit_ker, par_conv,
                 src, dst, weights, bias, 0, 0, 0);
     });
+    
+     std::cout<<x0<<std::endl;
+      std::cout<<x1<<std::endl;
+             std::cout<<x2<<std::endl;
+       std::cout<<x3<<std::endl;
+            std::cout<<x4<<std::endl;
+      std::cout<<x5<<std::endl;
+       std::cout<<x6<<std::endl;
+            std::cout<<x7<<std::endl;
+      std::cout<<x8<<std::endl;
+       std::cout<<x9<<std::endl;
 }
 
 template <data_type_t src_type, data_type_t wei_type,
@@ -1396,8 +1539,7 @@ void jit_avx512_common_convolution_bwd_weights_t<src_type, diff_dst_type,
         = ti->wei_bia_reduction + (nthr_mb_ - 1) * wei_size;
 
     /* diff_weights[:] += sum(wei_reduction_[thr_mb][:]) */
-    if (mkldnn_thr_syncable())
-        simple_barrier::barrier(ti->wei_bia_reduction_bctx, nthr_);
+    simple_barrier::barrier(ti->wei_bia_reduction_bctx, nthr_);
 
     const int ic_b_kh_work = ti->ic_b_work * jcp.kh;
     const int work = ti->g_work * ti->oc_b_work * ic_b_kh_work;
@@ -1455,8 +1597,7 @@ void jit_avx512_common_convolution_bwd_weights_t<src_type, diff_dst_type,
         * jcp.kd;
 
     /* diff_weights[:] += sum(wei_reduction_[thr_mb][:]) */
-    if (mkldnn_thr_syncable())
-        simple_barrier::barrier(ti->wei_bia_reduction_bctx, nthr_);
+    simple_barrier::barrier(ti->wei_bia_reduction_bctx, nthr_);
 
     const int ic_b_kh_work = ti->ic_b_work * jcp.kd;
     const int work = ti->g_work * ti->oc_b_work * ic_b_kh_work;
@@ -1548,8 +1689,7 @@ void jit_avx512_common_convolution_bwd_weights_t<src_type, diff_dst_type,
         }
     }
 
-    if (mkldnn_thr_syncable())
-        rb->reduce(ti->ithr, ti->diff_bias, reducer_bia_scratchpad);
+    rb->reduce(ti->ithr, ti->diff_bias, reducer_bia_scratchpad);
 }
 
 template <data_type_t src_type, data_type_t diff_dst_type,
@@ -1565,7 +1705,7 @@ void jit_avx512_common_convolution_bwd_weights_t<src_type, diff_dst_type,
     const diff_weights_data_t *diff_bias_ws
             = ti->wei_bia_reduction + (size_t)(nthr_mb_ - 1) * wei_size;
 
-    if (mkldnn_thr_syncable() && nthr_mb_ > 1) mkldnn_thr_barrier();
+    if (nthr_mb_ > 1) mkldnn_thr_barrier();
 
     if (ti->ithr == 0)
     {
@@ -1611,7 +1751,7 @@ void jit_avx512_common_convolution_bwd_weights_t<src_type, diff_dst_type,
         }
     }
 
-    if (mkldnn_thr_syncable() && nthr_mb_ > 1) {
+    if (nthr_mb_ > 1) {
         simple_barrier::ctx_init(scratchpad.template get<simple_barrier::ctx_t>(
                     key_conv_wei_bia_reduction_bctx));
     }
@@ -1628,7 +1768,6 @@ void jit_avx512_common_convolution_bwd_weights_t<src_type, diff_dst_type,
     diff_weights_type>::execute_backward_weights(const exec_ctx_t &ctx) const {
     prepare_scratchpad_data(ctx);
 
-#if MKLDNN_THR_SYNC == 1
     parallel(nthr_, [&](const int ithr, const int nthr) {
         assert(nthr_ == nthr);
 
@@ -1656,61 +1795,6 @@ void jit_avx512_common_convolution_bwd_weights_t<src_type, diff_dst_type,
         default: assert(!"Invalid harness type");
         }
     });
-#else
-    parallel(nthr_, [&](const int ithr, const int nthr) {
-        thread_info_t thread_info(this, ctx, ithr);
-        switch (pd()->jcp_.harness) {
-        case harness_2d_reduction:
-            compute_diff_weights_2d(&thread_info);
-            break;
-        case harness_3d_reduction:
-            compute_diff_weights_3d(&thread_info);
-            break;
-        case harness_mb_reduction:
-            compute_diff_weights(&thread_info);
-            if (pd()->with_bias()) compute_diff_bias(&thread_info);
-            break;
-        default: assert(!"Invalid harness type");
-        }
-    });
-
-    parallel(nthr_, [&](const int ithr, const int nthr) {
-        thread_info_t thread_info(this, ctx, ithr);
-        if (nthr_mb_ > 1) {
-            switch (pd()->jcp_.harness) {
-            case harness_mb_reduction:
-            case harness_2d_reduction:
-                reduce_diff_weights(&thread_info);
-                break;
-            case harness_3d_reduction:
-                reduce_diff_weights_3d(&thread_info);
-                break;
-            default: assert(!"Invalid harness type");
-            }
-        }
-        if (pd()->with_bias()) {
-            switch (pd()->jcp_.harness) {
-            case harness_2d_reduction:
-            case harness_3d_reduction:
-                reduce_diff_bias(&thread_info);
-                break;
-            case harness_mb_reduction:
-                {
-                    auto rb = this->reducer_bias_;
-                    assert(nthr == rb->balancer().nthr_);
-                    if (rb->balancer().ithr_njobs(ithr) == 0) return;
-                    const auto reducer_bia_scratchpad =
-                        memory_tracking::grantor_t(
-                                thread_info.scratchpad, prefix_reducer_bia);
-                    rb->reduce_nolock(thread_info.ithr, thread_info.diff_bias,
-                            reducer_bia_scratchpad);
-                }
-                break;
-            default: assert(!"Invalid harness type");
-            }
-        }
-    });
-#endif
 
     /* TODO: put that into compute_diff_bias() */
     if (pd()->wants_padded_bias()) {
