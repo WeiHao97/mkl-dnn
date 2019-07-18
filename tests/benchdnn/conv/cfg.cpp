@@ -47,7 +47,15 @@ const _dt_conf_t conf_f32 = {
     {mkldnn_f32, -int_max_exact, int_max_exact,  -32,  32, 0, 1, .25, 0.},
     {mkldnn_f32, -int_max_exact, int_max_exact,  -32,  32, 0, 1, 1.0, 0.},
     {mkldnn_f32, -int_max_exact, int_max_exact, -512, 512, 0, 1, 1.0, 0.},
-    {mkldnn_f32, -int_max_exact, int_max_exact,  -32,  32, 0, 1, .25, 0.},
+    {mkldnn_f32, -int_max_exact, int_max_exact,  -32,  32, 0, 1, 0., 0.},
+    {mkldnn_f32,},
+};
+//change sparsity
+const _dt_conf_t conf_f32_sparse = {
+    {mkldnn_f32, -int_max_exact, int_max_exact,  -32,  32, 0, 1, 0.01, 0.},
+    {mkldnn_f32, -int_max_exact, int_max_exact,  -32,  32, 0, 1, 1.0, 0.},
+    {mkldnn_f32, -int_max_exact, int_max_exact, -512, 512, 0, 1, 1.0, 0.},
+    {mkldnn_f32, -int_max_exact, int_max_exact,  -32,  32, 0, 1, 0., 0.},
     {mkldnn_f32,},
 };
 
@@ -205,12 +213,13 @@ const _dt_conf_t conf_u8s8u8s32_wino = {
     {mkldnn_u8,          0, UINT8_MAX,    0, 255, 0, 1, .25, 0.},
     {mkldnn_s32,},
 };
-
+//change sparsity
 const dt_conf_t *str2cfg(const char *str) {
 #define CASE(cfg) \
     if (!strcasecmp(STRINGIFY(cfg), str)) return CONCAT2(conf_,cfg)
     CASE(f16);
     CASE(f32);
+    CASE(f32_sparse);
     CASE(f32_no_limits);
     CASE(f32_full);
     CASE(f32_wino);
@@ -239,6 +248,7 @@ const char *cfg2str(const dt_conf_t *cfg) {
 #define CASE(_cfg) if (cfg == CONCAT2(conf_,_cfg)) return STRINGIFY(_cfg)
     CASE(f16);
     CASE(f32);
+    CASE(f32_sparse);
     CASE(f32_no_limits);
     CASE(f32_full);
     CASE(f32_wino);

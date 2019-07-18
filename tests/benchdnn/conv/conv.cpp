@@ -29,6 +29,13 @@
 
 #include "conv/conv_common.hpp"
 
+//for convsd opt
+#include <iostream>
+#include <iterator>
+#include <fstream>
+#include <vector>
+#include <algorithm> // for std::copy
+
 namespace conv {
 
 inline bool is_conv_3d(const prb_t *p) {
@@ -279,6 +286,7 @@ int compare_dst(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp,
         res_t *r, bool final_compare)
 { return compare_dat(p, DST, mem_dt, mem_fp, r, final_compare); }
 
+
 int fill_src(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp,
         res_t *r) {
     const bool extra_mem = mem_dt.dt() != mem_fp.dt();
@@ -287,29 +295,61 @@ int fill_src(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp,
                       get_default_tag(mem_dt.md_.ndims), engine_ref)
             : &mem_fp;
     dnn_mem_t &mem_00 = *p_mem_00;
-
-    const auto &c = p->cfg[SRC];
-    const int range = c.f_max - c.f_min + 1;
-
+    
+    
+    //const auto &c = p->cfg[SRC];
+    //const int range = c.f_max - c.f_min + 1;
+                
+                
+    // load own image
+    std::ifstream is("/data/mkl-dnn/build/tests/benchdnn/sparse.data"); 
+    std::istream_iterator<float> start(is), end;
+    std::vector<float> user_src(start, end);
+    
     mkldnn::impl::parallel_nd(p->mb, p->ic, p->id, p->ih, p->iw,
         [&](int mb, int ic, int id, int ih, int iw) {
-        const int gen = 5 * id + 17 * ih + 13 * iw + 13 * mb + 19 * ic + 1637;
-        const bool non_base = flip_coin(gen, c.f_sparsity);
-        const float value =
-            non_base ? c.f_min + gen * c.f_step % range : c.f_base;
+        //const int gen = 5 * id + 17 * ih + 13 * iw + 13 * mb + 19 * ic + 1637;
+        //const bool non_base = flip_coin(gen, c.f_sparsity);
+        
+        //const float value =
+            //non_base ? c.f_min + gen * c.f_step % range : c.f_base;
 
-        ((float*)mem_00)[src_off_f(p, mb, 0, ic, id, ih, iw)] = value;
+        ((float*)mem_00)[src_off_f(p, mb, 0, ic, id, ih, iw)] = user_src[ic*1080*1920+ih*1920+iw];//value;
     });
-
+    
     SAFE(mem_dt.reorder(mem_00), WARN);
     if (extra_mem) {
+    std::cout<<extra_mem<<std::endl;
         SAFE(mem_fp.reorder(mem_dt), WARN);
         SAFE(compare_src(p, mem_fp, mem_00, r), WARN);
         delete &mem_00;
     }
-
     return OK;
 }
+
+/*
+int fill_src(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp, res_t *r) {
+    dnn_mem_t *p_mem_00 = new dnn_mem_t(mem_dt.md_, mkldnn_f32,get_default_tag(mem_dt.md_.ndims), engine_ref);
+    dnn_mem_t &mem_00 = *p_mem_00;
+    dnn_mem_t *p_mem_01 = new dnn_mem_t(mem_fp.md_, mkldnn_f32,get_default_tag(mem_dt.md_.ndims), engine_ref);
+    dnn_mem_t &mem_01 = *p_mem_01;
+
+// load own image
+    std::ifstream is("/data/mkl-dnn/build/tests/benchdnn/sparse.data");
+    std::istream_iterator<float> start(is), end;
+    std::vector<float> user_src(start, end);
+            
+    mkldnn::impl::parallel_nd(p->mb, p->ic, p->id, p->ih, p->iw,
+        [&](int mb, int ic, int id, int ih, int iw) {
+
+        ((float*)mem_00)[src_off_f(p, mb, 0, ic, id, ih, iw)] = user_src[ic*1080*1920+ih*1920+iw];
+        ((float*)mem_01)[src_off_f(p, mb, 0, ic, id, ih, iw)] = user_src[ic*1080*1920+ih*1920+iw];
+    });
+        delete &mem_00;
+        delete &mem_01;
+        SAFE(compare_src(p, mem_fp, mem_dt, r), WARN);
+    return OK;
+}*/
 
 int fill_wei(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp,
     res_t *r) {
@@ -317,7 +357,6 @@ int fill_wei(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp,
     const bool s8_s8 = p->cfg[WEI].dt == mkldnn_s8 && p->cfg[SRC].dt == mkldnn_s8;
     const bool diff_data_type = mem_dt.dt() != mem_fp.dt();
     const bool check_reorder = diff_data_type && !wino_s8 && !s8_s8;
-
     dnn_mem_t *p_mem_00 = check_reorder
             ? new dnn_mem_t(mem_dt.md_, mkldnn_f32,
                       get_default_tag(mem_dt.md_.ndims), engine_ref)
@@ -331,7 +370,7 @@ int fill_wei(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp,
         p->g, p->oc / p->g, p->ic / p->g, p->kd, p->kh, p->kw,
         [&](int g, int oc, int ic, int kd, int kh, int kw) {
         const int gen = 5 * kd + 17 * kh + 13 * kw + 13 * oc + 19 * ic + 38;
-        const bool non_base = flip_coin(gen, c.f_sparsity);
+        const bool non_base = true;flip_coin(gen, c.f_sparsity); // chnage to make weight full with nonzeros
         const float value =
             non_base ? c.f_min + gen * c.f_step % range : c.f_base;
 
@@ -366,7 +405,7 @@ int fill_bia(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp,
         const float value =
             non_base ? c.f_min + gen * c.f_step % range : c.f_base;
 
-        ((float*)mem_00)[i] = value;
+        ((float*)mem_00)[i] = 0;//value; bias should be all zeros
     }
 
     SAFE(mem_dt.reorder(mem_00), WARN);
@@ -397,8 +436,8 @@ int fill_dst(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp,
         const bool non_base = flip_coin(gen, c.f_sparsity);
         const float value =
             non_base ? c.f_min + gen * c.f_step % range : c.f_base;
-
-        ((float*)mem_00)[dst_off_f(p, mb, 0, oc, od, oh, ow)] = value;
+//change to make dst all zero
+        ((float*)mem_00)[dst_off_f(p, mb, 0, oc, od, oh, ow)] = 0;//value;
     });
 
     SAFE(mem_dt.reorder(mem_00), WARN);
@@ -557,12 +596,11 @@ inline int init_pd(const prb_t *p, mkldnn_convolution_desc_t &cd,
 int doit(const prb_t *p, res_t *r) {
     res_t res_zero{};
     *r = res_zero;
-
     mkldnn_convolution_desc_t cd;
     mkldnn_primitive_desc_t cpd;
     mkldnn_primitive_t c{};
 
-    SAFE(init_pd(p, cd, cpd, r), WARN);
+    SAFE(init_pd(p, cd, cpd, r), WARN);// load primitive/convolution descriptors
 
     if (r->state == SKIPPED || r->state == UNIMPLEMENTED)
         return OK;
@@ -584,7 +622,10 @@ int doit(const prb_t *p, res_t *r) {
     auto &bia_dt_d = p->dir & FLAG_BWD ? cd.diff_bias_desc : cd.bias_desc;
     auto &dst_dt_d = p->dir & FLAG_BWD ? cd.diff_dst_desc: cd.dst_desc;
 
-    dnn_mem_t src_dt(src_dt_d, p->cfg[SRC].dt, engine_tgt);
+    //mkldnn_memory_t temp;
+    //mkldnn_memory_create(&temp,  &(src_dt_d), engine_tgt, static_cast<void*>(user_src.data()));
+    
+    dnn_mem_t src_dt(src_dt_d, p->cfg[SRC].dt, mkldnn_abcd, engine_tgt);   // change input format 
     dnn_mem_t wei_dt(wei_dt_d, p->cfg[WEI].dt, engine_tgt);
     dnn_mem_t dst_dt(dst_dt_d, p->cfg[DST].dt, engine_tgt);
     dnn_mem_t *p_bia_dt = p->dir & FLAG_BIA
@@ -603,15 +644,17 @@ int doit(const prb_t *p, res_t *r) {
             ? new dnn_mem_t(bia_dt_d, fp, mkldnn_x, engine_ref)
             : new dnn_mem_t();
     dnn_mem_t &bia_fp = *p_bia_fp;
-
-    SAFE(fill_src(p, src_dt, src_fp, r), WARN);
+    SAFE(fill_src(p, src_dt, src_fp, r), WARN);// reorder inside fill
+    //std::cout <<"Input Sparsity : "<< 1- (p->cfg[SRC]).f_sparsity<<std::endl;
     SAFE(fill_wei(p, wei_dt, wei_fp, r), WARN);
+    //std::cout <<"Weight Sparsity : "<< 1- (p->cfg[WEI]).f_sparsity<<std::endl;
     SAFE(fill_dst(p, dst_dt, dst_fp, r), WARN);
+    //std::cout <<"Output Sparsity : "<< 1- (p->cfg[DST]).f_sparsity<<std::endl;
     if (p->dir & FLAG_BIA)
         SAFE(fill_bia(p, bia_dt, bia_fp, r), WARN);
-
+    
     args_t args;
-
+    //std::cout <<"src_dt.nelems(): "<< src_dt.nelems()<<std::endl;
     if (p->dir & FLAG_FWD) {
         args.set(MKLDNN_ARG_SRC, src_dt.m_);
         args.set(MKLDNN_ARG_WEIGHTS, wei_dt.m_);
@@ -619,12 +662,12 @@ int doit(const prb_t *p, res_t *r) {
             args.set(MKLDNN_ARG_BIAS, bia_dt.m_);
         args.set(MKLDNN_ARG_DST, dst_dt.m_);
 
-        DNN_SAFE(execute_and_wait(c, stream_tgt, args.size(), args), WARN);
+        DNN_SAFE(execute_and_wait(c, stream_tgt, args.size(), args), WARN);// mkldnn imp
 
         if (bench_mode & CORR) {
-            compute_ref_fwd(p, src_fp, wei_fp, bia_fp, dst_fp);
+            compute_ref_fwd(p, src_fp, wei_fp, bia_fp, dst_fp);// ref imp
             dnn_mem_t dst(dst_dt, fp, src_tag, engine_ref);
-            SAFE(compare_dst(p, dst, dst_fp, r, true), WARN);
+            SAFE(compare_dst(p, dst, dst_fp, r, true), WARN);// compare
         }
     } else if (p->dir == BWD_D) {
         args.set(MKLDNN_ARG_DIFF_DST, dst_dt.m_);
