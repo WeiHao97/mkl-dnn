@@ -328,28 +328,35 @@ int fill_src(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp,
 }
 
 /*
-int fill_src(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp, res_t *r) {
-    dnn_mem_t *p_mem_00 = new dnn_mem_t(mem_dt.md_, mkldnn_f32,get_default_tag(mem_dt.md_.ndims), engine_ref);
+int fill_src(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp,
+        res_t *r) {
+    const bool extra_mem = mem_dt.dt() != mem_fp.dt();
+    dnn_mem_t *p_mem_00 = extra_mem
+            ? new dnn_mem_t(mem_dt.md_, mkldnn_f32,
+                      get_default_tag(mem_dt.md_.ndims), engine_ref)
+            : &mem_fp;
     dnn_mem_t &mem_00 = *p_mem_00;
-    dnn_mem_t *p_mem_01 = new dnn_mem_t(mem_fp.md_, mkldnn_f32,get_default_tag(mem_dt.md_.ndims), engine_ref);
-    dnn_mem_t &mem_01 = *p_mem_01;
-
-// load own image
-    std::ifstream is("/data/mkl-dnn/build/tests/benchdnn/sparse.data");
+    // load own image
+    std::ifstream is("/data/mkl-dnn/build/tests/benchdnn/sparse.data"); 
     std::istream_iterator<float> start(is), end;
     std::vector<float> user_src(start, end);
-            
+    
     mkldnn::impl::parallel_nd(p->mb, p->ic, p->id, p->ih, p->iw,
         [&](int mb, int ic, int id, int ih, int iw) {
 
-        ((float*)mem_00)[src_off_f(p, mb, 0, ic, id, ih, iw)] = user_src[ic*1080*1920+ih*1920+iw];
-        ((float*)mem_01)[src_off_f(p, mb, 0, ic, id, ih, iw)] = user_src[ic*1080*1920+ih*1920+iw];
+        ((float*)mem_00)[src_off_f(p, mb, 0, ic, id, ih, iw)] = user_src[ic*1080*1920+ih*1920+iw];//value;
     });
+    
+    SAFE(mem_dt.reorder(mem_00), WARN);
+    if (extra_mem) {
+    std::cout<<extra_mem<<std::endl;
+        SAFE(mem_fp.reorder(mem_dt), WARN);
+        SAFE(compare_src(p, mem_fp, mem_00, r), WARN);
         delete &mem_00;
-        delete &mem_01;
-        SAFE(compare_src(p, mem_fp, mem_dt, r), WARN);
+    }
     return OK;
-}*/
+}
+*/
 
 int fill_wei(const prb_t *p, dnn_mem_t &mem_dt, dnn_mem_t &mem_fp,
     res_t *r) {
