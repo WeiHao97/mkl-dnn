@@ -287,7 +287,7 @@ execute_forward_2d(const exec_ctx_t &ctx) const {
     const memory_desc_wrapper src_d(pd()->src_md());
     const memory_desc_wrapper dst_d(pd()->dst_md());
     const memory_desc_wrapper weights_d(pd()->weights_md(0));
-    //std::cout << "src_d : "<<src_d.dims()<<std::endl;https://github.com/intel/mkl-dnn/blob/master/src/common/memory_desc_wrapper.hpp
+    //std::cout << "src_d.nelems() : "<<src_d.nelems()<<std::endl;//https://github.com/intel/mkl-dnn/blob/master/src/common/memory_desc_wrapper.hpp
 
     const auto &jcp = pd()->jcp_; //jit_conv_conf_t, pd = primitive discriptor?
     assert(jcp.nb_oc % jcp.nb_oc_blocking == 0);
@@ -300,7 +300,7 @@ execute_forward_2d(const exec_ctx_t &ctx) const {
         nthr = jcp.aligned_threads;
     else
         nthr = mkldnn_get_max_threads();// use this 40 thread
-        nthr = 20;//??????????????????????????
+        nthr = 170;//??????????????????????????
     /*
     std::cout << "jcp.ndims : "<<jcp.ndims<<std::endl;
     std::cout << "jcp.mb : "<<jcp.mb<<std::endl;
@@ -362,8 +362,7 @@ execute_forward_2d(const exec_ctx_t &ctx) const {
     std::cout << "jcp.nonblk_group_off : "<<jcp.nonblk_group_off<<std::endl;
 if (jcp.loop_order == loop_gncw){
     std::cout << "loop_gncw "<<std::endl;}*/
-
-    int x0=0;
+    /*int x0=0;
     int x1=0;
     int x2=0;
     int x3=0;
@@ -372,7 +371,7 @@ if (jcp.loop_order == loop_gncw){
     int x6=0;
     int x7=0;
     int x8=0;
-    int x9=0;
+    int x9=0;*/
 
     
     parallel(nthr, [&](const int ithr, const int nthr) {
@@ -395,7 +394,6 @@ blk_off(n, c, w) blk_off(n, c, h, w) */
         size_t dst_h_stride = dst_d.blk_off(0, 0, 1);
         size_t wht_h_stride = wht_blk_off(weights_d, 0, 0, 0, 1);
         size_t wht_ic_stride = wht_blk_off(weights_d, 0, 0, 1);
-        //std::cout << "wht_ic_stride : "<<wht_ic_stride<<std::endl;
 
         for (int icb_l2 = 0 ; icb_l2 < jcp.nb_ic; icb_l2 += jcp.nb_ic_L2) {//acording to the blocking of src, 1 in ours
             start = start_copy;
@@ -459,18 +457,19 @@ blk_off(n, c, w) blk_off(n, c, h, w) */
                             auto aux_src = src_c
                                     + i_t_overflow * dilate_h * src_h_stride;
                             auto aux_wht = wht_w + i_t_overflow * wht_h_stride;
-                            // question ???
+                            // optimization
                             int num = 0;
                             int i = 0;
-                            
-                            for(; i <1920 * 7; i++){
-                            if(aux_src[i] != 0 ){ 
+                            auto my_aux_src = aux_src;
+                            //if(ithr!=0 && ithr<10){my_aux_src -=(int(src_h_stride)*jcp.t_pad + ithr*kh_padding*(jcp.l_pad +jcp.r_pad));}
+                            for(; i <int(src_h_stride) * kh_padding; i++){
+                            if(my_aux_src[i] != 0 ){ 
                               num++;
                             }
                           }
                                        
-                          if(num >= 0.001*i){
-                          
+                          if(num >= 1 ){
+                         /* 
                             if(ithr == 0)
                                x0++;
                             else if(ithr ==1)
@@ -490,7 +489,7 @@ blk_off(n, c, w) blk_off(n, c, h, w) */
                             else if (ithr == 8)
                                 x8++;
                                 else if(ithr ==9)
-                               x9++;
+                               x9++;*/
                                
                             jit_conv_ker_pipeline_ow_thr(kernel_->jit_ker,
                                 par_conv, aux_src, dst_c, aux_wht, bias_w, icb,
@@ -522,7 +521,7 @@ blk_off(n, c, w) blk_off(n, c, h, w) */
         jit_conv_ker_pipeline_ow_thr(kernel_->jit_ker, par_conv,
                 src, dst, weights, bias, 0, 0, 0);
     });
-    
+    /*
      std::cout<<x0<<std::endl;
       std::cout<<x1<<std::endl;
              std::cout<<x2<<std::endl;
@@ -532,7 +531,8 @@ blk_off(n, c, w) blk_off(n, c, h, w) */
        std::cout<<x6<<std::endl;
             std::cout<<x7<<std::endl;
       std::cout<<x8<<std::endl;
-       std::cout<<x9<<std::endl;
+       std::cout<<x9<<std::endl;*/
+       
 }
 
 template <data_type_t src_type, data_type_t wei_type,
