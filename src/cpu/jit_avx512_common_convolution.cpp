@@ -296,11 +296,12 @@ execute_forward_2d(const exec_ctx_t &ctx) const {
     int work_amount = jcp.mb * jcp.ngroups * oc_chunks * jcp.oh * jcp.nb_ow;// 1*1*4*540*1
 
     int nthr;
+    int max_threads;
     if (jcp.aligned_threads)
         nthr = jcp.aligned_threads;
     else
         nthr = mkldnn_get_max_threads();// use this 40 thread
-        nthr = 170;//??????????????????????????
+        max_threads = nthr;
     /*
     std::cout << "jcp.ndims : "<<jcp.ndims<<std::endl;
     std::cout << "jcp.mb : "<<jcp.mb<<std::endl;
@@ -373,10 +374,12 @@ if (jcp.loop_order == loop_gncw){
     int x8=0;
     int x9=0;*/
 
-    
-    parallel(nthr, [&](const int ithr, const int nthr) {
+    nthr = 60;//??????????????????????????
+    int threads_per_oc = int(max_threads/int(jcp.nb_oc));
+    parallel(nthr, [&](const int ithr, const int nthr) { 
+        int my_ithr = floor(ithr/max_threads)*threads_per_oc+((ithr - ithr%threads_per_oc)%max_threads)*(nthr/max_threads) + ithr%threads_per_oc;
         int start{0}, end{0}, start_copy;
-        balance211(work_amount, nthr, ithr, start, end);
+        balance211(work_amount, nthr, my_ithr, start, end);
         /*balance211(ithr,start,end) {
               end = ithr < 40 ? 54 : 53;
               start = ithr <= 40 ? ithr * 54 : 40 + ithr* 53;
